@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Checkout</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div id="checkout-container" class="max-w-md mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+        <div class="p-6 bg-blue-600 text-white" data-test-id="order-details">
+            <h2 class="text-xl font-bold">Complete Payment</h2>
+            <p class="mt-2">Amount: <span data-test-id="order-amount">₹0.00</span></p>
+            <p class="text-sm opacity-80">Order ID: <span data-test-id="order-id">Loading...</span></p>
+        </div>
+
+        <div class="p-6 border-b" data-test-id="payment-methods">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select Payment Method</label>
+            <div class="flex gap-4">
+                <button onclick="switchMethod('upi')" data-test-id="method-upi" class="flex-1 py-2 border rounded hover:bg-gray-50">UPI</button>
+                <button onclick="switchMethod('card')" data-test-id="method-card" class="flex-1 py-2 border rounded hover:bg-gray-50">Card</button>
+            </div>
+        </div>
+
+        <div id="upi-form" class="p-6 hidden" data-test-id="upi-container">
+            <input type="text" id="vpa" data-test-id="vpa-input" placeholder="user@bank" class="w-full p-2 border rounded mb-4">
+            <button onclick="processPayment('upi')" data-test-id="pay-button" class="w-full bg-green-600 text-white py-3 rounded font-bold">Pay Now</button>
+        </div>
+
+        <div id="card-form" class="p-6 hidden" data-test-id="card-container">
+            <input type="text" id="card-number" data-test-id="card-number-input" placeholder="Card Number" class="w-full p-2 border rounded mb-2">
+            <div class="flex gap-2 mb-2">
+                <input type="text" id="expiry" data-test-id="card-expiry-input" placeholder="MM/YY" class="w-1/2 p-2 border rounded">
+                <input type="text" id="cvv" data-test-id="card-cvv-input" placeholder="CVV" class="w-1/2 p-2 border rounded">
+            </div>
+            <input type="text" id="holder" data-test-id="card-holder-input" placeholder="Card Holder Name" class="w-full p-2 border rounded mb-4">
+            <button onclick="processPayment('card')" data-test-id="pay-button" class="w-full bg-green-600 text-white py-3 rounded font-bold">Pay Now</button>
+        </div>
+
+        <div id="processing" class="p-10 text-center hidden" data-test-id="processing-state">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-xl font-bold">Processing payment...</p>
+        </div>
+
+        <div id="success" class="p-10 text-center hidden" data-test-id="success-state">
+            <div class="text-green-500 text-5xl mb-4">✓</div>
+            <h2 class="text-2xl font-bold mb-2">Payment Successful!</h2>
+            <p>Payment ID: <span data-test-id="payment-id"></span></p>
+        </div>
+
+        <div id="failure" class="p-10 text-center hidden" data-test-id="failure-state">
+            <div class="text-red-500 text-5xl mb-4">✗</div>
+            <h2 class="text-2xl font-bold mb-2">Payment Failed</h2>
+            <button onclick="location.reload()" data-test-id="retry-button" class="bg-blue-600 text-white px-6 py-2 rounded">Try Again</button>
+        </div>
+    </div>
+
+    <script>
+    const API_BASE = 'http://localhost:8000/api/v1';
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('order_id');
+
+    // MANDATORY: Authentication credentials for the simulation
+    const TEST_AUTH = { 
+        'X-Api-Key': 'key_test_abc123', 
+        'X-Api-Secret': 'secret_test_xyz789' 
+    };
+
+    // Load Order Details on Page Load using the Public Endpoint
+    async function loadOrder() {
+        if (!orderId) {
+            document.querySelector('[data-test-id="order-id"]').innerText = 'No Order ID Provided';
+            return;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/orders/${orderId}/public`);
+            const data = await res.json();
+            if (data.id) {
+                // Convert paise to Rupees for display
+                document.querySelector('[data-test-id="order-amount"]').innerText = `₹${(data.amount / 100).toFixed(2)}`;
+                document.querySelector('[data-test-id="order-id"]').innerText = data.id;
+            }
+        } catch (e) { 
+            console.error("Failed to load order:", e); 
+        }
+    }
+    loadOrder();
+
+    function switchMethod(method) {
+        document.getElementById('upi-form').classList.toggle('hidden', method !== 'upi');
+        document.getElementById('card-form').classList.toggle('hidden', method !== 'card');
+    }
+
+    async function processPayment(method) {
+        document.getElementById('upi-form').classList.add('hidden');
+        document.getElementById('card-form').classList.add('hidden');
+        document.getElementById('processing').classList.remove('hidden');
+
+        const body = { order_id: orderId, method: method };
+        if (method === 'upi') {
+            body.vpa = document.getElementById('vpa').value;
+        } else {
+            const expiryValue = document.getElementById('expiry').value;
+            const [mm, yy] = expiryValue.split('/');
+            body.card = {
+                number: document.getElementById('card-number').value,
+                expiry_month: mm,
+                expiry_year: yy,
+                cvv: document.getElementById('cvv').value,
+                holder_name: document.getElementById('holder').value
+            };
+        }
+
+        try {
+            const res = await fetch(`${API_BASE}/payments`, {
+                method: 'POST',
+                headers: { 
+                    ...TEST_AUTH, 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.id) {
+                pollStatus(data.id);
+            } else {
+                throw new Error("Payment creation failed");
+            }
+        } catch (e) {
+            showState('failure');
+        }
+    }
+
+    // Poll every 2 seconds to check the payment status (processing -> success/failed)
+    function pollStatus(payId) {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE}/payments/${payId}`, { headers: TEST_AUTH });
+                const data = await res.json();
+                if (data.status === 'success' || data.status === 'failed') {
+                    clearInterval(interval);
+                    showState(data.status, data.id);
+                }
+            } catch (e) {
+                console.error("Polling error:", e);
+            }
+        }, 2000);
+    }
+
+    function showState(state, payId) {
+        document.getElementById('processing').classList.add('hidden');
+        document.getElementById('success').classList.add('hidden');
+        document.getElementById('failure').classList.add('hidden');
+        
+        const targetElement = document.getElementById(state);
+        if (targetElement) {
+            targetElement.classList.remove('hidden');
+        }
+        
+        if (payId && state === 'success') {
+            document.querySelector('[data-test-id="payment-id"]').innerText = payId;
+        }
+    }
+</script>
+</body>
+</html>

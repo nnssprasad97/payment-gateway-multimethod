@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Merchant Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const TEST_MERCHANT = {
+            email: "test@example.com",
+            api_key: "key_test_abc123",
+            api_secret: "secret_test_xyz789"
+        };
+
+        function renderLogin() {
+            document.getElementById('root').innerHTML = `
+                <div class="min-h-screen flex items-center justify-center">
+                    <div class="bg-white p-8 rounded shadow-md w-96">
+                        <h2 class="text-2xl font-bold mb-6">Merchant Login</h2>
+                        <input type="email" id="email" placeholder="Email" class="w-full p-2 border mb-4 rounded">
+                        <input type="password" id="password" placeholder="Password" class="w-full p-2 border mb-6 rounded">
+                        <button onclick="login()" data-test-id="login-button" class="w-full bg-blue-600 text-white p-2 rounded">Login</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function renderDashboard() {
+            try {
+                // Fetch real payments from the merchant-specific endpoint
+                const res = await fetch(`${API_URL}/api/v1/payments/merchant`, {
+                    headers: {
+                        'X-Api-Key': TEST_MERCHANT.api_key,
+                        'X-Api-Secret': TEST_MERCHANT.api_secret
+                    }
+                });
+                const payments = await res.json();
+
+                // Calculate real-time metrics
+                const totalTransactions = payments.length;
+                const successfulPayments = payments.filter(p => p.status === 'success');
+                const totalAmount = successfulPayments.reduce((sum, p) => sum + p.amount, 0);
+                const successRate = totalTransactions > 0 
+                    ? Math.round((successfulPayments.length / totalTransactions) * 100) 
+                    : 0;
+
+                document.getElementById('root').innerHTML = `
+                    <div class="p-8">
+                        <h1 class="text-3xl font-bold mb-8">Dashboard</h1>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-8">
+                            <div class="p-4 bg-white shadow rounded border">
+                                <p class="text-gray-500 text-sm">API Key</p>
+                                <p class="font-mono font-bold break-all text-blue-600" data-test-id="api-key">${TEST_MERCHANT.api_key}</p>
+                            </div>
+                            <div class="p-4 bg-white shadow rounded border">
+                                <p class="text-gray-500 text-sm">API Secret</p>
+                                <p class="font-mono font-bold break-all text-blue-600" data-test-id="api-secret">${TEST_MERCHANT.api_secret}</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                            <div class="p-6 bg-blue-50 rounded shadow border border-blue-100">
+                                <p class="text-blue-600 font-semibold uppercase text-xs">Total Transactions</p>
+                                <h2 data-test-id="total-transactions" class="text-3xl font-bold">${totalTransactions}</h2>
+                            </div>
+                            <div class="p-6 bg-green-50 rounded shadow border border-green-100">
+                                <p class="text-green-600 font-semibold uppercase text-xs">Total Amount</p>
+                                <h2 data-test-id="total-amount" class="text-3xl font-bold">₹${(totalAmount / 100).toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
+                            </div>
+                            <div class="p-6 bg-purple-50 rounded shadow border border-purple-100">
+                                <p class="text-purple-600 font-semibold uppercase text-xs">Success Rate</p>
+                                <h2 data-test-id="success-rate" class="text-3xl font-bold">${successRate}%</h2>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button onclick="renderTransactions()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded transition font-bold shadow-md">
+                                View Transactions
+                            </button>
+                            <button onclick="renderDashboard()" class="bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 px-6 py-2 rounded transition font-bold shadow-sm">
+                                Refresh Stats
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                console.error("Dashboard error:", err);
+                alert("Could not load dashboard data. Check if backend is running.");
+            }
+        }
+
+        async function renderTransactions() {
+            try {
+                const res = await fetch(`${API_URL}/api/v1/payments/merchant`, {
+                    headers: {
+                        'X-Api-Key': TEST_MERCHANT.api_key,
+                        'X-Api-Secret': TEST_MERCHANT.api_secret
+                    }
+                });
+                const payments = await res.json();
+
+                document.getElementById('root').innerHTML = `
+                    <div class="p-8">
+                        <div class="flex justify-between items-center mb-8">
+                            <h1 class="text-3xl font-bold">Transaction History</h1>
+                            <button onclick="renderDashboard()" class="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black transition">← Dashboard</button>
+                        </div>
+                        
+                        <div class="bg-white shadow-xl rounded-lg overflow-hidden border">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-100 border-b">
+                                        <th class="p-4 font-bold text-gray-700">Payment ID</th>
+                                        <th class="p-4 font-bold text-gray-700">Order ID</th>
+                                        <th class="p-4 font-bold text-gray-700">Amount</th>
+                                        <th class="p-4 font-bold text-gray-700">Method</th>
+                                        <th class="p-4 font-bold text-gray-700">Status</th>
+                                        <th class="p-4 font-bold text-gray-700">Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody data-test-id="transactions-table">
+                                    ${payments.length === 0 ? '<tr><td colspan="6" class="p-10 text-center text-gray-400">No transactions recorded yet.</td></tr>' : ''}
+                                    ${payments.map(p => `
+                                        <tr class="border-b hover:bg-gray-50 transition">
+                                            <td class="p-4 font-mono text-xs text-gray-600">${p.id}</td>
+                                            <td class="p-4 font-mono text-xs text-gray-600">${p.order_id}</td>
+                                            <td class="p-4 font-bold">₹${(p.amount / 100).toFixed(2)}</td>
+                                            <td class="p-4 uppercase text-xs font-semibold text-gray-500">${p.method}</td>
+                                            <td class="p-4">
+                                                <span class="px-2 py-1 rounded-full text-[10px] font-black uppercase ${
+                                                    p.status === 'success' ? 'bg-green-100 text-green-700' : 
+                                                    p.status === 'processing' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                                                }">
+                                                    ${p.status}
+                                                </span>
+                                            </td>
+                                            <td class="p-4 text-gray-400 text-xs">${new Date(p.created_at).toLocaleString()}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                alert("Error loading transaction history.");
+            }
+        }
+
+        function login() {
+            const email = document.getElementById('email').value;
+            // Password is not validated for Deliverable 1
+            if(email === TEST_MERCHANT.email) {
+                renderDashboard();
+            } else {
+                alert("Please use the test email: test@example.com");
+            }
+        }
+
+        renderLogin();
+    </script>
+</body>
+</html>

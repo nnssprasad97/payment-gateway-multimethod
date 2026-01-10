@@ -1,0 +1,29 @@
+# Node dependencies
+node_modules/
+npm-debug.log
+# Backend
+backend/node_modules/
+backend/npm-debug.log
+
+# Frontend
+frontend/node_modules/
+
+# Checkout Page
+checkout-page/node_modules/
+
+# Python/Java build files
+__pycache__/
+target/
+build/
+.gradle/
+*.class
+
+# Database data (Very important to ignore this)
+pgdata/
+
+# Secrets and Config
+.env
+.DS_Store
+
+# Docker logs
+*.log
