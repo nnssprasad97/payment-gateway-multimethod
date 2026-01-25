@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Merchant Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50">
     <div id="root"></div>
 
@@ -19,12 +21,12 @@
         function renderLogin() {
             document.getElementById('root').innerHTML = `
                 <div class="min-h-screen flex items-center justify-center">
-                    <div class="bg-white p-8 rounded shadow-md w-96">
+                    <form data-testid="login-form" onsubmit="event.preventDefault(); login()" class="bg-white p-8 rounded shadow-md w-96">
                         <h2 class="text-2xl font-bold mb-6">Merchant Login</h2>
-                        <input type="email" id="email" placeholder="Email" class="w-full p-2 border mb-4 rounded">
-                        <input type="password" id="password" placeholder="Password" class="w-full p-2 border mb-6 rounded">
-                        <button onclick="login()" data-test-id="login-button" class="w-full bg-blue-600 text-white p-2 rounded">Login</button>
-                    </div>
+                        <input type="email" data-testid="email-input" id="email-input" placeholder="Email" class="w-full p-2 border mb-4 rounded">
+                        <input type="password" data-testid="password-input" id="password-input" placeholder="Password" class="w-full p-2 border mb-6 rounded">
+                        <button data-testid="login-button" type="submit" class="w-full bg-blue-600 text-white p-2 rounded">Login</button>
+                    </form>
                 </div>
             `;
         }
@@ -44,37 +46,37 @@
                 const totalTransactions = payments.length;
                 const successfulPayments = payments.filter(p => p.status === 'success');
                 const totalAmount = successfulPayments.reduce((sum, p) => sum + p.amount, 0);
-                const successRate = totalTransactions > 0 
-                    ? Math.round((successfulPayments.length / totalTransactions) * 100) 
+                const successRate = totalTransactions > 0
+                    ? Math.round((successfulPayments.length / totalTransactions) * 100)
                     : 0;
 
                 document.getElementById('root').innerHTML = `
-                    <div class="p-8">
+                    <div class="p-8" data-testid="dashboard">
                         <h1 class="text-3xl font-bold mb-8">Dashboard</h1>
                         
-                        <div class="grid grid-cols-2 gap-4 mb-8">
+                        <div class="grid grid-cols-2 gap-4 mb-8" data-testid="api-credentials">
                             <div class="p-4 bg-white shadow rounded border">
                                 <p class="text-gray-500 text-sm">API Key</p>
-                                <p class="font-mono font-bold break-all text-blue-600" data-test-id="api-key">${TEST_MERCHANT.api_key}</p>
+                                <p class="font-mono font-bold break-all text-blue-600" data-testid="api-key">${TEST_MERCHANT.api_key}</p>
                             </div>
                             <div class="p-4 bg-white shadow rounded border">
                                 <p class="text-gray-500 text-sm">API Secret</p>
-                                <p class="font-mono font-bold break-all text-blue-600" data-test-id="api-secret">${TEST_MERCHANT.api_secret}</p>
+                                <p class="font-mono font-bold break-all text-blue-600" data-testid="api-secret">${TEST_MERCHANT.api_secret}</p>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8" data-testid="stats-container">
                             <div class="p-6 bg-blue-50 rounded shadow border border-blue-100">
                                 <p class="text-blue-600 font-semibold uppercase text-xs">Total Transactions</p>
-                                <h2 data-test-id="total-transactions" class="text-3xl font-bold">${totalTransactions}</h2>
+                                <h2 data-testid="total-transactions" class="text-3xl font-bold">${totalTransactions}</h2>
                             </div>
                             <div class="p-6 bg-green-50 rounded shadow border border-green-100">
                                 <p class="text-green-600 font-semibold uppercase text-xs">Total Amount</p>
-                                <h2 data-test-id="total-amount" class="text-3xl font-bold">₹${(totalAmount / 100).toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
+                                <h2 data-testid="total-amount" class="text-3xl font-bold">₹${(totalAmount / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</h2>
                             </div>
                             <div class="p-6 bg-purple-50 rounded shadow border border-purple-100">
                                 <p class="text-purple-600 font-semibold uppercase text-xs">Success Rate</p>
-                                <h2 data-test-id="success-rate" class="text-3xl font-bold">${successRate}%</h2>
+                                <h2 data-testid="success-rate" class="text-3xl font-bold">${successRate}%</h2>
                             </div>
                         </div>
 
@@ -112,7 +114,7 @@
                         </div>
                         
                         <div class="bg-white shadow-xl rounded-lg overflow-hidden border">
-                            <table class="w-full text-left border-collapse">
+                            <table class="w-full text-left border-collapse" data-testid="transactions-table">
                                 <thead>
                                     <tr class="bg-gray-100 border-b">
                                         <th class="p-4 font-bold text-gray-700">Payment ID</th>
@@ -123,23 +125,22 @@
                                         <th class="p-4 font-bold text-gray-700">Date</th>
                                     </tr>
                                 </thead>
-                                <tbody data-test-id="transactions-table">
+                                <tbody>
                                     ${payments.length === 0 ? '<tr><td colspan="6" class="p-10 text-center text-gray-400">No transactions recorded yet.</td></tr>' : ''}
                                     ${payments.map(p => `
-                                        <tr class="border-b hover:bg-gray-50 transition">
-                                            <td class="p-4 font-mono text-xs text-gray-600">${p.id}</td>
-                                            <td class="p-4 font-mono text-xs text-gray-600">${p.order_id}</td>
-                                            <td class="p-4 font-bold">₹${(p.amount / 100).toFixed(2)}</td>
-                                            <td class="p-4 uppercase text-xs font-semibold text-gray-500">${p.method}</td>
+                                        <tr class="border-b hover:bg-gray-50 transition" data-testid="transaction-row" data-payment-id="${p.id}">
+                                            <td class="p-4 font-mono text-xs text-gray-600" data-testid="payment-id">${p.id}</td>
+                                            <td class="p-4 font-mono text-xs text-gray-600" data-testid="order-id">${p.order_id}</td>
+                                            <td class="p-4 font-bold" data-testid="amount">${(p.amount / 100).toFixed(2)}</td>
+                                            <td class="p-4 uppercase text-xs font-semibold text-gray-500" data-testid="method">${p.method}</td>
                                             <td class="p-4">
-                                                <span class="px-2 py-1 rounded-full text-[10px] font-black uppercase ${
-                                                    p.status === 'success' ? 'bg-green-100 text-green-700' : 
-                                                    p.status === 'processing' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
-                                                }">
+                                                <span class="px-2 py-1 rounded-full text-[10px] font-black uppercase ${p.status === 'success' ? 'bg-green-100 text-green-700' :
+                        p.status === 'processing' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                    }" data-testid="status">
                                                     ${p.status}
                                                 </span>
                                             </td>
-                                            <td class="p-4 text-gray-400 text-xs">${new Date(p.created_at).toLocaleString()}</td>
+                                            <td class="p-4 text-gray-400 text-xs" data-testid="created-at">${new Date(p.created_at).toLocaleString()}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -153,9 +154,9 @@
         }
 
         function login() {
-            const email = document.getElementById('email').value;
+            const email = document.getElementById('email-input').value;
             // Password is not validated for Deliverable 1
-            if(email === TEST_MERCHANT.email) {
+            if (email === TEST_MERCHANT.email) {
                 renderDashboard();
             } else {
                 alert("Please use the test email: test@example.com");
@@ -165,4 +166,5 @@
         renderLogin();
     </script>
 </body>
+
 </html>
