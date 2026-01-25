@@ -61,6 +61,26 @@ const generateId = (prefix) => {
     return `${prefix}${result}`;
 };
 
+/**
+ * Validates card expiry date
+ */
+const validateExpiry = (month, year) => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // 0-indexed
+
+    let expYear = parseInt(year);
+    let expMonth = parseInt(month);
+
+    // Handle 2 digit year
+    if (year.length === 2) expYear += 2000;
+
+    if (expYear < currentYear) return false;
+    if (expYear === currentYear && expMonth < currentMonth) return false;
+    
+    return expMonth >= 1 && expMonth <= 12;
+};
+
 // --- API ENDPOINTS ---
 
 // 1. Health Check
@@ -205,13 +225,19 @@ app.post('/api/v1/payments', async (req, res) => {
                 });
             }
         } else if (method === 'card') {
-            if (!card || !validateLuhn(card.number)) {
+            const { number, expiry_month, expiry_year } = card;
+            if (!card || !validateLuhn(number)) {
                 return res.status(400).json({
                     "error": { "code": "INVALID_CARD", "description": "Card validation failed" }
                 });
             }
-            cardNetwork = detectNetwork(card.number);
-            cardLast4 = card.number.slice(-4);
+            if (!validateExpiry(expiry_month, expiry_year)) {
+                 return res.status(400).json({
+                    "error": { "code": "EXPIRED_CARD", "description": "Card expiry date invalid" }
+                });
+            }
+            cardNetwork = detectNetwork(number);
+            cardLast4 = number.slice(-4);
         }
 
         // 4. Initial Insert (Must be 'processing')
@@ -238,8 +264,18 @@ app.post('/api/v1/payments', async (req, res) => {
                 : (Math.random() < successProb);
 
             const finalStatus = success ? 'success' : 'failed';
+            let errorCode = null;
+            let errorDesc = null;
+
+            if (!success) {
+                errorCode = 'PAYMENT_FAILED';
+                errorDesc = 'Payment processing failed due to bank rejection';
+            }
             
-            await pool.query('UPDATE payments SET status = $1, updated_at = NOW() WHERE id = $2', [finalStatus, paymentId]);
+            await pool.query(
+                'UPDATE payments SET status = $1, error_code = $2, error_description = $3, updated_at = NOW() WHERE id = $4', 
+                [finalStatus, errorCode, errorDesc, paymentId]
+            );
             if (success) await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['paid', order_id]);
         }, delay);
 
