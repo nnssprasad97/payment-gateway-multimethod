@@ -71,7 +71,7 @@
             <span data-testid="success-message">Your payment has been processed successfully</span>
         </div>
 
-        <div id="failure" class="p-10 text-center hidden" data-testid="error-state">
+        <div id="error-state" class="p-10 text-center hidden" data-testid="error-state">
             <div class="text-red-500 text-5xl mb-4">✗</div>
             <h2 class="text-2xl font-bold mb-2">Payment Failed</h2>
             <span data-testid="error-message">Payment could not be processed</span>
@@ -81,7 +81,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000/api/v1';
+        const API_BASE = 'http://localhost:8000';
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id');
 
@@ -98,7 +98,7 @@
                 return;
             }
             try {
-                const res = await fetch(`${API_BASE}/orders/${orderId}/public`);
+                const res = await fetch(`${API_BASE}/api/v1/orders/${orderId}/public`);
                 const data = await res.json();
                 if (data.id) {
                     // Convert paise to Rupees for display
@@ -134,13 +134,27 @@
                     cvv: document.getElementById('cvv').value,
                     holder_name: document.getElementById('holder').value
                 };
+
+                const now = new Date();
+                const currentYear = now.getFullYear() % 100; // 2 digit year
+                const currentMonth = now.getMonth() + 1;
+
+                let expYear = parseInt(yy);
+                if (yy.length === 2) expYear += 0; // consistent comparison
+
+                // Simple client side check: year < current OR (year == current AND month < current)
+                if (parseInt(yy) < currentYear || (parseInt(yy) === currentYear && parseInt(mm) < currentMonth)) {
+                    alert("Card has expired");
+                    document.getElementById('processing').classList.add('hidden');
+                    document.getElementById('card-form').classList.remove('hidden');
+                    return;
+                }
             }
 
             try {
-                const res = await fetch(`${API_BASE}/payments`, {
+                const res = await fetch(`${API_BASE}/api/v1/payments/public`, {
                     method: 'POST',
                     headers: {
-                        ...TEST_AUTH,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(body)
@@ -160,7 +174,7 @@
         function pollStatus(payId) {
             const interval = setInterval(async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/payments/${payId}`, { headers: TEST_AUTH });
+                    const res = await fetch(`${API_BASE}/api/v1/payments/${payId}`, { headers: TEST_AUTH });
                     const data = await res.json();
                     if (data.status === 'success' || data.status === 'failed') {
                         clearInterval(interval);
@@ -175,9 +189,9 @@
         function showState(state, payId) {
             document.getElementById('processing').classList.add('hidden');
             document.getElementById('success').classList.add('hidden');
-            document.getElementById('failure').classList.add('hidden');
+            document.getElementById('error-state').classList.add('hidden');
 
-            const targetElement = document.getElementById(state === 'failed' ? 'failure' : state);
+            const targetElement = document.getElementById(state === 'failed' ? 'error-state' : state);
             if (targetElement) {
                 targetElement.classList.remove('hidden');
             }
