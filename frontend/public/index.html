@@ -12,11 +12,24 @@
 
     <script>
         const API_URL = 'http://localhost:8000';
-        const TEST_MERCHANT = {
-            email: "test@example.com",
-            api_key: "key_test_abc123",
-            api_secret: "secret_test_xyz789"
-        };
+        let TEST_MERCHANT = { email: "test@example.com", api_key: "", api_secret: "" };
+
+        async function fetchTestConfig() {
+            try {
+                const res = await fetch(`${API_URL}/api/v1/test/merchant`);
+                const data = await res.json();
+                if (data.api_key && data.api_secret) {
+                    TEST_MERCHANT = {
+                        email: data.email,
+                        api_key: data.api_key,
+                        api_secret: data.api_secret
+                    };
+                }
+            } catch (e) {
+                console.error("Failed to fetch test config", e);
+            }
+        }
+        fetchTestConfig();
 
         function renderLogin() {
             document.getElementById('root').innerHTML = `

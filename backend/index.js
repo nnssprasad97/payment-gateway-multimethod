@@ -127,6 +127,14 @@ app.get('/api/v1/payments/merchant', async (req, res) => {
 
 // 3. Create Order
 app.post('/api/v1/orders', async (req, res) => {
+    const idempotencyKey = req.headers['x-idempotency-key'];
+    if (idempotencyKey) {
+        try {
+            const existing = await pool.query('SELECT response FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
+            if (existing.rows.length > 0) return res.status(200).json(existing.rows[0].response);
+        } catch (e) { }
+    }
+
     // Destructure with default values to avoid nulls
     const {
         amount,
@@ -167,13 +175,44 @@ app.post('/api/v1/orders', async (req, res) => {
 
         const orderId = generateId('order_');
 
-        // Include receipt and notes in the query
-        const result = await pool.query(
-            'INSERT INTO orders (id, merchant_id, amount, currency, receipt, notes, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-            [orderId, merchant.rows[0].id, amount, currency, receipt, notes, 'created']
-        );
+        let validatedNotes = {};
+        if (notes && typeof notes === 'object') {
+            try {
+                // Deep copy and basic size check
+                validatedNotes = JSON.parse(JSON.stringify(notes));
+                if (Object.keys(validatedNotes).length > 10) {
+                    throw new Error("Too many notes fields");
+                }
+            } catch (e) {
+                return res.status(400).json({
+                    "error": { "code": "BAD_REQUEST_ERROR", "description": "Invalid notes format or content" }
+                });
+            }
+        }
 
-        res.status(201).json(result.rows[0]);
+        // Include receipt and notes in the query
+        const client = await pool.connect();
+        let result;
+        try {
+            await client.query('BEGIN');
+            result = await client.query(
+                'INSERT INTO orders (id, merchant_id, amount, currency, receipt, notes, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+                [orderId, merchant.rows[0].id, amount, currency, receipt, validatedNotes, 'created']
+            );
+            await client.query('COMMIT');
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
+        }
+
+        const responseData = result.rows[0];
+        if (idempotencyKey) {
+            await pool.query('INSERT INTO idempotency_keys (key, response) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [idempotencyKey, JSON.stringify(responseData)]);
+        }
+
+        res.status(201).json(responseData);
     } catch (err) {
         // Standardized internal error code
         res.status(500).json({
@@ -186,6 +225,13 @@ app.post('/api/v1/orders', async (req, res) => {
 });
 // 4. Create Payment (Includes state machine transition)
 app.post('/api/v1/payments', async (req, res) => {
+    const idempotencyKey = req.headers['x-idempotency-key'];
+    if (idempotencyKey) {
+        try {
+            const existing = await pool.query('SELECT response FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
+            if (existing.rows.length > 0) return res.status(200).json(existing.rows[0].response);
+        } catch (e) { }
+    }
     const { order_id, method, vpa, card } = req.body;
     const apiKey = req.headers['x-api-key'];
     const apiSecret = req.headers['x-api-secret'];
@@ -272,15 +318,27 @@ app.post('/api/v1/payments', async (req, res) => {
                 errorDesc = 'Payment processing failed due to bank rejection';
             }
 
-            await pool.query(
-                'UPDATE payments SET status = $1, error_code = $2, error_description = $3, updated_at = NOW() WHERE id = $4',
-                [finalStatus, errorCode, errorDesc, paymentId]
-            );
-            if (success) await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['paid', order_id]);
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(
+                    'UPDATE payments SET status = $1, error_code = $2, error_description = $3, updated_at = NOW() WHERE id = $4',
+                    [finalStatus, errorCode, errorDesc, paymentId]
+                );
+                if (success) {
+                    await client.query('UPDATE orders SET status = $1 WHERE id = $2', ['paid', order_id]);
+                }
+                await client.query('COMMIT');
+            } catch (err) {
+                await client.query('ROLLBACK');
+                console.error("Transaction failed:", err);
+            } finally {
+                client.release();
+            }
         }, delay);
 
         // 6. Mandatory Response Fields
-        res.status(201).json({
+        const responseData = {
             "id": paymentId,
             "order_id": order_id,
             "amount": orderResult.rows[0].amount,
@@ -291,7 +349,13 @@ app.post('/api/v1/payments', async (req, res) => {
             "card_network": cardNetwork || undefined,
             "card_last4": cardLast4 || undefined,
             "created_at": new Date().toISOString()
-        });
+        };
+
+        if (idempotencyKey) {
+            await pool.query('INSERT INTO idempotency_keys (key, response) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [idempotencyKey, JSON.stringify(responseData)]);
+        }
+
+        res.status(201).json(responseData);
 
     } catch (err) {
         res.status(500).json({
@@ -302,6 +366,13 @@ app.post('/api/v1/payments', async (req, res) => {
 
 // 4.5 Public Create Payment Endpoint (For Checkout Page)
 app.post('/api/v1/payments/public', async (req, res) => {
+    const idempotencyKey = req.headers['x-idempotency-key'];
+    if (idempotencyKey) {
+        try {
+            const existing = await pool.query('SELECT response FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
+            if (existing.rows.length > 0) return res.status(200).json(existing.rows[0].response);
+        } catch (e) { }
+    }
     const { order_id, method, vpa, card } = req.body;
 
     // Note: No merchant auth required for public checkout flow
@@ -382,15 +453,27 @@ app.post('/api/v1/payments/public', async (req, res) => {
                 errorDesc = 'Payment processing failed due to bank rejection';
             }
 
-            await pool.query(
-                'UPDATE payments SET status = $1, error_code = $2, error_description = $3, updated_at = NOW() WHERE id = $4',
-                [finalStatus, errorCode, errorDesc, paymentId]
-            );
-            if (success) await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['paid', order_id]);
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(
+                    'UPDATE payments SET status = $1, error_code = $2, error_description = $3, updated_at = NOW() WHERE id = $4',
+                    [finalStatus, errorCode, errorDesc, paymentId]
+                );
+                if (success) {
+                    await client.query('UPDATE orders SET status = $1 WHERE id = $2', ['paid', order_id]);
+                }
+                await client.query('COMMIT');
+            } catch (err) {
+                await client.query('ROLLBACK');
+                console.error("Transaction failed:", err);
+            } finally {
+                client.release();
+            }
         }, delay);
 
         // 5. Mandatory Response Fields
-        res.status(201).json({
+        const responseData = {
             "id": paymentId,
             "order_id": order_id,
             "amount": orderResult.rows[0].amount,
@@ -401,7 +484,13 @@ app.post('/api/v1/payments/public', async (req, res) => {
             "card_network": cardNetwork || undefined,
             "card_last4": cardLast4 || undefined,
             "created_at": new Date().toISOString()
-        });
+        };
+
+        if (idempotencyKey) {
+            await pool.query('INSERT INTO idempotency_keys (key, response) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [idempotencyKey, JSON.stringify(responseData)]);
+        }
+
+        res.status(201).json(responseData);
 
     } catch (err) {
         res.status(500).json({
@@ -412,8 +501,18 @@ app.post('/api/v1/payments/public', async (req, res) => {
 // 5. Polling Endpoint (Critical: Returns JSON status for checkout)
 // 5. Get Payment Endpoint (MANDATORY for Polling)
 app.get('/api/v1/payments/:id', async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    const apiSecret = req.headers['x-api-secret'];
+
     try {
-        const result = await pool.query('SELECT * FROM payments WHERE id = $1', [req.params.id]);
+        const merchant = await pool.query('SELECT id FROM merchants WHERE api_key = $1 AND api_secret = $2', [apiKey, apiSecret]);
+        if (merchant.rows.length === 0) {
+            return res.status(401).json({
+                "error": { "code": "AUTHENTICATION_ERROR", "description": "Invalid API credentials" }
+            });
+        }
+
+        const result = await pool.query('SELECT * FROM payments WHERE id = $1 AND merchant_id = $2', [req.params.id, merchant.rows[0].id]);
 
         if (result.rows.length === 0) {
             // Standardized error code required for automated evaluation
@@ -434,6 +533,35 @@ app.get('/api/v1/payments/:id', async (req, res) => {
                 "code": "INTERNAL_ERROR",
                 "description": err.message
             }
+        });
+    }
+});
+
+// Protected Order Detail
+app.get('/api/v1/orders/:id', async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    const apiSecret = req.headers['x-api-secret'];
+
+    try {
+        const merchant = await pool.query('SELECT id FROM merchants WHERE api_key = $1 AND api_secret = $2', [apiKey, apiSecret]);
+        if (merchant.rows.length === 0) {
+            return res.status(401).json({
+                "error": { "code": "AUTHENTICATION_ERROR", "description": "Invalid API credentials" }
+            });
+        }
+
+        const result = await pool.query('SELECT * FROM orders WHERE id = $1 AND merchant_id = $2', [req.params.id, merchant.rows[0].id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                "error": { "code": "NOT_FOUND_ERROR", "description": "Order not found" }
+            });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({
+            "error": { "code": "INTERNAL_ERROR", "description": err.message }
         });
     }
 });
@@ -470,7 +598,7 @@ app.get('/api/v1/orders/:id/public', async (req, res) => {
 });
 app.get('/api/v1/test/merchant', async (req, res) => {
     try {
-        const result = await pool.query('SELECT id, email, api_key FROM merchants WHERE email = $1', ['test@example.com']);
+        const result = await pool.query('SELECT id, email, api_key, api_secret FROM merchants WHERE email = $1', ['test@example.com']);
         if (result.rows.length === 0) return res.status(404).json({ error: { code: "NOT_FOUND_ERROR" } });
 
         res.json({

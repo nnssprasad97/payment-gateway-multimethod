@@ -85,12 +85,6 @@
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id');
 
-        // MANDATORY: Authentication credentials for the simulation
-        const TEST_AUTH = {
-            'X-Api-Key': 'key_test_abc123',
-            'X-Api-Secret': 'secret_test_xyz789'
-        };
-
         // Load Order Details on Page Load using the Public Endpoint
         async function loadOrder() {
             if (!orderId) {
@@ -116,6 +110,19 @@
             document.getElementById('card-form').classList.toggle('hidden', method !== 'card');
         }
 
+        function validateLuhn(cardNumber) {
+            let digits = cardNumber.replace(/\D/g, '').split('').map(Number);
+            for (let i = digits.length - 2; i >= 0; i -= 2) {
+                digits[i] *= 2;
+                if (digits[i] > 9) digits[i] -= 9;
+            }
+            return digits.reduce((a, b) => a + b, 0) % 10 === 0;
+        }
+
+        function validateVPA(vpa) {
+            return /^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$/.test(vpa);
+        }
+
         async function processPayment(method) {
             document.getElementById('upi-form').classList.add('hidden');
             document.getElementById('card-form').classList.add('hidden');
@@ -123,12 +130,26 @@
 
             const body = { order_id: orderId, method: method };
             if (method === 'upi') {
-                body.vpa = document.getElementById('vpa').value;
+                const vpaValue = document.getElementById('vpa').value;
+                if (!validateVPA(vpaValue)) {
+                    alert("Invalid VPA format");
+                    document.getElementById('processing').classList.add('hidden');
+                    document.getElementById('upi-form').classList.remove('hidden');
+                    return;
+                }
+                body.vpa = vpaValue;
             } else {
+                const cardNumber = document.getElementById('card-number').value;
+                if (!validateLuhn(cardNumber)) {
+                    alert("Invalid card number format");
+                    document.getElementById('processing').classList.add('hidden');
+                    document.getElementById('card-form').classList.remove('hidden');
+                    return;
+                }
                 const expiryValue = document.getElementById('expiry').value;
                 const [mm, yy] = expiryValue.split('/');
                 body.card = {
-                    number: document.getElementById('card-number').value,
+                    number: cardNumber,
                     expiry_month: mm,
                     expiry_year: yy,
                     cvv: document.getElementById('cvv').value,
@@ -151,11 +172,14 @@
                 }
             }
 
+            const idempotencyKey = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+
             try {
                 const res = await fetch(`${API_BASE}/api/v1/payments/public`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-Idempotency-Key': idempotencyKey
                     },
                     body: JSON.stringify(body)
                 });
@@ -174,7 +198,7 @@
         function pollStatus(payId) {
             const interval = setInterval(async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/api/v1/payments/${payId}`, { headers: TEST_AUTH });
+                    const res = await fetch(`${API_BASE}/api/v1/payments/${payId}/public`);
                     const data = await res.json();
                     if (data.status === 'success' || data.status === 'failed') {
                         clearInterval(interval);

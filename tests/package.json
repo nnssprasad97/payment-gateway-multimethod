@@ -1,0 +1,11 @@
+{
+  "name": "payment-gateway-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test:ui": "jest selenium.test.js"
+  },
+  "dependencies": {
+    "selenium-webdriver": "^4.16.0",
+    "jest": "^29.7.0"
+  }
+}
